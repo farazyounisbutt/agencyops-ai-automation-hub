@@ -1,0 +1,15 @@
+{
+  "name": "agencyops-ai-automation-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered automation and reporting hub for digital agencies",
+  "license": "MIT",
+  "packageManager": "pnpm@12.3.4",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.3.4",
+      "onFail": "download"
+    }
+  }
+}
