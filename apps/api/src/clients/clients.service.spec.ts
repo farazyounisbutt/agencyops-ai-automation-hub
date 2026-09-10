@@ -1,4 +1,5 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client.js';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClientsService } from './clients.service.js';
@@ -21,6 +22,7 @@ describe('ClientsService', () => {
   let prisma: {
     workspace: { findUnique: ReturnType<typeof vi.fn> };
     client: {
+      create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
     };
@@ -29,12 +31,112 @@ describe('ClientsService', () => {
   beforeEach(async () => {
     prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue({ id: workspaceId }) },
-      client: { findMany: vi.fn(), findFirst: vi.fn() },
+      client: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
     };
     const module = await Test.createTestingModule({
       providers: [ClientsService, { provide: PrismaService, useValue: prisma }],
     }).compile();
     service = module.get(ClientsService);
+  });
+
+  it('creates with explicit input fields and URL-resolved ownership', async () => {
+    prisma.client.create.mockResolvedValue(client);
+    const input = {
+      name: client.name,
+      slug: client.slug,
+      workspaceId: 'injected',
+      status: 'ARCHIVED',
+    };
+    await expect(service.create('agencyops-demo', input)).resolves.toEqual(
+      client,
+    );
+    expect(prisma.workspace.findUnique).toHaveBeenCalledWith({
+      where: { slug: 'agencyops-demo' },
+      select: { id: true },
+    });
+    expect(prisma.client.create).toHaveBeenCalledWith({
+      data: {
+        workspaceId,
+        name: client.name,
+        slug: client.slug,
+        website: undefined,
+        timezone: undefined,
+      },
+    });
+  });
+
+  it('does not insert for a missing workspace', async () => {
+    prisma.workspace.findUnique.mockResolvedValue(null);
+    await expect(
+      service.create('missing', { name: 'Acme', slug: 'acme' }),
+    ).rejects.toThrow(new NotFoundException('Workspace not found'));
+    expect(prisma.client.create).not.toHaveBeenCalled();
+  });
+
+  const databaseError = (code: string, meta?: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError('Database failure', {
+      code,
+      clientVersion: '7.9.1',
+      meta,
+    });
+
+  it.each([
+    { target: ['workspaceId', 'slug'] },
+    {
+      driverAdapterError: {
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          constraint: { fields: ['"workspaceId"', 'slug'] },
+        },
+      },
+    },
+  ])(
+    'translates only the Client workspace/slug uniqueness violation: %j',
+    async (meta) => {
+      prisma.client.create.mockRejectedValue(
+        databaseError('P2002', {
+          modelName: 'Client',
+          ...meta,
+        }),
+      );
+      await expect(
+        service.create('agencyops-demo', { name: 'Acme', slug: 'acme' }),
+      ).rejects.toThrow(ConflictException);
+    },
+  );
+
+  it.each([
+    databaseError('P2002', { modelName: 'Client', target: ['id'] }),
+    databaseError('P2002', { modelName: 'Workspace', target: ['slug'] }),
+    databaseError('P2002'),
+    databaseError('P2002', {
+      modelName: 'Client',
+      driverAdapterError: {
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          constraint: { fields: ['id'] },
+        },
+      },
+    }),
+    databaseError('P2002', {
+      modelName: 'Client',
+      driverAdapterError: {
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          constraint: { index: 'Client_pkey' },
+        },
+      },
+    }),
+    databaseError('P2003', {
+      modelName: 'Client',
+      target: ['workspaceId', 'slug'],
+    }),
+    new Error('Connection failure'),
+  ])('preserves unrelated database errors: %s', async (error) => {
+    prisma.client.create.mockRejectedValue(error);
+    await expect(
+      service.create('agencyops-demo', { name: 'Acme', slug: 'acme' }),
+    ).rejects.toBe(error);
   });
 
   it('lists all workspace clients ordered by name', async () => {
