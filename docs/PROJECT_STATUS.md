@@ -27,8 +27,12 @@ Recent Git history, oldest first:
 
 The frontend still displays the Next.js starter page. Redis has local Docker
 infrastructure but no application integration. Authentication, membership
-authorization, client writes, automation, and reporting are not implemented.
+authorization, client update/archive, automation, and reporting are not implemented.
 n8n is planned for the MVP but has no Docker service or local configuration yet.
+
+Client Creation API is implemented and verified:
+workspace-scoped insertion, declarative DTO validation, and shared bootstrap/e2e
+configuration for the `/api` prefix, CORS, and global `ValidationPipe`.
 
 ## Database models
 
@@ -55,6 +59,16 @@ Default base URL: `http://localhost:3001/api`.
 | `GET /api/health` | Executes `SELECT 1`; returns status, database state, and timestamp; database query failure returns 503 |
 | `GET /api/workspaces/:workspaceSlug/clients` | Returns all workspace clients ordered by name ascending; empty array if none; 404 for missing workspace |
 | `GET /api/workspaces/:workspaceSlug/clients/:clientId` | Returns client scoped to workspace; 404 for missing workspace, missing/out-of-workspace client, or invalid UUID |
+| `POST /api/workspaces/:workspaceSlug/clients` | Creates a client with 201; invalid input returns 400, missing workspace 404, and duplicate workspace/client slug 409; the same slug is allowed in another workspace |
+
+Creation requires a trimmed name (1–200 characters) and an unmodified lowercase
+alphanumeric slug with single hyphen separators (1–100 characters). Optional
+`website` accepts an HTTP/HTTPS URL or null; optional `timezone` accepts a named
+IANA time zone and rejects null. Omission uses the database defaults: UTC and
+ACTIVE status. Unknown properties, including `workspaceId` and `status`, are
+rejected. Workspace ownership comes only from the route's workspace lookup.
+Runtime validation dependencies are pinned to `class-validator` 0.15.1 and
+`class-transformer` 0.5.1. The Prisma schema and migrations are unchanged.
 
 Client routes currently have no authentication or membership authorization.
 The health endpoint checks PostgreSQL only. Database connection failure can
@@ -117,12 +131,28 @@ curl --fail http://localhost:3001/api/health
 curl --fail http://localhost:3001/api/workspaces/agencyops-demo/clients
 ```
 
-API unit tests cover the scaffold controller and client service behavior with
-mocked database access. The current end-to-end test imports the real application
-module and needs PostgreSQL; it checks the scaffold root response at `/` in its
-test app, which does not run bootstrap's `/api` prefix setup. It does not yet
-exercise health or client HTTP routes. The web package has no test script.
+API unit tests cover the scaffold controller, client read/create service behavior
+with mocked database access, and DTO validation through the configured pipe.
+End-to-end tests use PostgreSQL and the same `configureApp` function as bootstrap.
+They check `/api`, client creation, validation, scoped reads, and duplicate-slug
+behavior including concurrent requests. The new suite creates UUID-named test
+workspaces and deletes only its own recorded workspace IDs and cascading clients.
+Health HTTP coverage remains pending. The web package has no test script.
 The curl checks require the running API, and the demo request requires seeding.
+
+Client creation verification (2026-09-11):
+
+- API build passed.
+- Web build passed in the normal local terminal (confirmed by the user).
+- API lint passed.
+- Web lint passed.
+- 67 unit tests passed.
+- 8 PostgreSQL-backed end-to-end tests passed.
+- `git diff --check` passed.
+
+`pnpm peers check` continues to report a pre-existing mismatch: `tsconfck` 3.1.6
+expects TypeScript ^5 while the API currently uses TypeScript 6.0.3. This mismatch
+was not introduced or changed by this feature.
 
 For new schema work, use
 `pnpm --dir apps/api exec prisma migrate dev --name <name>` and explicitly
@@ -131,10 +161,10 @@ volumes unless intentionally discarding local data.
 
 ## Immediate next task and MVP roadmap
 
-**Client Creation API is the immediate next implementation task**: add one
-workspace-scoped client creation endpoint with validation and focused tests.
-Client update and archive operations will be separate subsequent tasks within
-the Client Write API roadmap phase.
+**Client Creation API is implemented and verified.** The immediate next planned
+task is **Client Update API**, requiring a separate task brief, approval, feature
+branch, and commit. Client archive remains a later separate task within the
+Client Write API roadmap phase.
 Authentication and workspace authorization follow before exposing client
 management to real users.
 
