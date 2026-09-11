@@ -1,6 +1,7 @@
 # AgencyOps project status
 
-Repository baseline: `a63a216` on `main`, inspected on 2026-09-10.
+Repository implementation baseline before Client Update API:
+`8ba1c2e` on `main`, reviewed on 2026-09-11.
 
 ## Product goal
 
@@ -27,12 +28,16 @@ Recent Git history, oldest first:
 
 The frontend still displays the Next.js starter page. Redis has local Docker
 infrastructure but no application integration. Authentication, membership
-authorization, client update/archive, automation, and reporting are not implemented.
+authorization, client archive, automation, and reporting are not implemented.
 n8n is planned for the MVP but has no Docker service or local configuration yet.
 
 Client Creation API is implemented and verified:
 workspace-scoped insertion, declarative DTO validation, and shared bootstrap/e2e
 configuration for the `/api` prefix, CORS, and global `ValidationPipe`.
+
+Client Update API is implemented and verified: partial, workspace-scoped updates
+with shared creation field rules, explicit supplied-field persistence, website
+clearing, and database-enforced slug conflict handling.
 
 ## Database models
 
@@ -60,6 +65,7 @@ Default base URL: `http://localhost:3001/api`.
 | `GET /api/workspaces/:workspaceSlug/clients` | Returns all workspace clients ordered by name ascending; empty array if none; 404 for missing workspace |
 | `GET /api/workspaces/:workspaceSlug/clients/:clientId` | Returns client scoped to workspace; 404 for missing workspace, missing/out-of-workspace client, or invalid UUID |
 | `POST /api/workspaces/:workspaceSlug/clients` | Creates a client with 201; invalid input returns 400, missing workspace 404, and duplicate workspace/client slug 409; the same slug is allowed in another workspace |
+| `PATCH /api/workspaces/:workspaceSlug/clients/:clientId` | Updates supplied client fields with 200; invalid/empty input returns 400, missing workspace or missing/invalid-UUID/out-of-workspace client 404, and duplicate workspace/client slug 409 |
 
 Creation requires a trimmed name (1–200 characters) and an unmodified lowercase
 alphanumeric slug with single hyphen separators (1–100 characters). Optional
@@ -69,6 +75,15 @@ ACTIVE status. Unknown properties, including `workspaceId` and `status`, are
 rejected. Workspace ownership comes only from the route's workspace lookup.
 Runtime validation dependencies are pinned to `class-validator` 0.15.1 and
 `class-transformer` 0.5.1. The Prisma schema and migrations are unchanged.
+
+Update accepts at least one of `name`, `slug`, `website`, or `timezone`, using
+creation's exact field validation rules. Omitted values remain unchanged;
+`website: null` clears the website, while name, slug, and timezone reject null.
+Unknown and protected fields are rejected. Workspace ownership is route-controlled,
+and writes are scoped by both client ID and workspace ID. Unchanged slugs and
+cross-workspace slug reuse succeed; concurrent same-workspace conflicts return 409.
+There is no status-based update restriction. Success returns the full persisted
+client; unrelated database errors are preserved.
 
 Client routes currently have no authentication or membership authorization.
 The health endpoint checks PostgreSQL only. Database connection failure can
@@ -150,6 +165,17 @@ Client creation verification (2026-09-11):
 - 8 PostgreSQL-backed end-to-end tests passed.
 - `git diff --check` passed.
 
+Client update verification (2026-09-11):
+
+- Prisma client generation passed; schema, migrations, dependencies, and lockfile unchanged.
+- API and web builds passed, as did both linters.
+- 127 unit tests passed across four files, including update DTO and service cases.
+- 19 PostgreSQL-backed end-to-end tests passed across three files, including
+  11 update cases covering individual/combined updates, omissions, clearing,
+  validation, workspace isolation, slug reuse/conflicts, concurrent writes, and reads.
+- Update fixtures use dedicated UUID-named workspaces and remove only their own records.
+- `git diff --check` passed.
+
 `pnpm peers check` continues to report a pre-existing mismatch: `tsconfck` 3.1.6
 expects TypeScript ^5 while the API currently uses TypeScript 6.0.3. This mismatch
 was not introduced or changed by this feature.
@@ -161,10 +187,9 @@ volumes unless intentionally discarding local data.
 
 ## Immediate next task and MVP roadmap
 
-**Client Creation API is implemented and verified.** The immediate next planned
-task is **Client Update API**, requiring a separate task brief, approval, feature
-branch, and commit. Client archive remains a later separate task within the
-Client Write API roadmap phase.
+**Client Creation and Client Update APIs are implemented and verified.** The
+immediate next planned task is **Client Archive API**, requiring a separate task
+brief, approval, feature branch, and commit within the Client Write API phase.
 Authentication and workspace authorization follow before exposing client
 management to real users.
 

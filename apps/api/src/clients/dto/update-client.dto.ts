@@ -14,17 +14,19 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-export class CreateClientDto {
+export class UpdateClientDto {
+  @ValidateIf((_: unknown, value: unknown) => value !== undefined)
   @Transform(trimClientName)
   @IsString()
   @Length(1, 200)
-  name!: string;
+  name?: string;
 
+  @ValidateIf((_: unknown, value: unknown) => value !== undefined)
   @IsString()
   @Length(1, 100)
   // Require the absolute end, including rejection of a final newline.
   @Matches(CLIENT_SLUG_PATTERN)
-  slug!: string;
+  slug?: string;
 
   @IsOptional()
   @IsUrl(CLIENT_WEBSITE_OPTIONS)
