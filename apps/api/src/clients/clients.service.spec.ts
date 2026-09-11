@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -22,6 +26,7 @@ describe('ClientsService', () => {
   let prisma: {
     workspace: { findUnique: ReturnType<typeof vi.fn> };
     client: {
+      update: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
@@ -31,7 +36,12 @@ describe('ClientsService', () => {
   beforeEach(async () => {
     prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue({ id: workspaceId }) },
-      client: { create: vi.fn(), findMany: vi.fn(), findFirst: vi.fn() },
+      client: {
+        update: vi.fn(),
+        create: vi.fn(),
+        findMany: vi.fn(),
+        findFirst: vi.fn(),
+      },
     };
     const module = await Test.createTestingModule({
       providers: [ClientsService, { provide: PrismaService, useValue: prisma }],
@@ -136,6 +146,85 @@ describe('ClientsService', () => {
     prisma.client.create.mockRejectedValue(error);
     await expect(
       service.create('agencyops-demo', { name: 'Acme', slug: 'acme' }),
+    ).rejects.toBe(error);
+  });
+
+  it.each([
+    { name: 'New' },
+    { slug: 'new' },
+    { website: null },
+    { timezone: 'Asia/Karachi' },
+    {
+      name: 'New',
+      slug: 'new',
+      website: 'https://example.com',
+      timezone: 'UTC',
+    },
+  ])(
+    'updates only supplied fields with scoped ownership: %j',
+    async (input) => {
+      prisma.client.update.mockResolvedValue({ ...client, ...input });
+      await expect(
+        service.update('agencyops-demo', clientId, {
+          ...input,
+          workspaceId: 'injected',
+          status: 'ARCHIVED',
+        } as typeof input),
+      ).resolves.toEqual({ ...client, ...input });
+      expect(prisma.client.update).toHaveBeenCalledWith({
+        where: { id: clientId, workspaceId },
+        data: input,
+      });
+    },
+  );
+  it('rejects empty updates before accessing the database', async () => {
+    await expect(
+      service.update('agencyops-demo', clientId, {}),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.workspace.findUnique).not.toHaveBeenCalled();
+    expect(prisma.client.update).not.toHaveBeenCalled();
+  });
+  it('does not update for a missing workspace', async () => {
+    prisma.workspace.findUnique.mockResolvedValue(null);
+    await expect(
+      service.update('missing', clientId, { name: 'New' }),
+    ).rejects.toThrow(NotFoundException);
+    expect(prisma.client.update).not.toHaveBeenCalled();
+  });
+  it('maps a scoped update with no matching client to 404', async () => {
+    prisma.client.update.mockRejectedValue(databaseError('P2025'));
+    await expect(
+      service.update('agencyops-demo', clientId, { name: 'New' }),
+    ).rejects.toThrow(NotFoundException);
+  });
+  it.each([
+    { target: ['workspaceId', 'slug'] },
+    {
+      driverAdapterError: {
+        cause: {
+          kind: 'UniqueConstraintViolation',
+          constraint: { fields: ['"workspaceId"', 'slug'] },
+        },
+      },
+    },
+  ])('maps update workspace/slug conflicts: %j', async (meta) => {
+    prisma.client.update.mockRejectedValue(
+      databaseError('P2002', { modelName: 'Client', ...meta }),
+    );
+    await expect(
+      service.update('agencyops-demo', clientId, { slug: 'taken' }),
+    ).rejects.toThrow(ConflictException);
+  });
+  it.each([
+    databaseError('P2002', { modelName: 'Client', target: ['id'] }),
+    databaseError('P2002', { modelName: 'Workspace', target: ['slug'] }),
+    databaseError('P2002'),
+    databaseError('P2003'),
+    new Error('Connection failure'),
+  ])('preserves unrelated update errors: %s', async (error) => {
+    prisma.client.update.mockRejectedValue(error);
+    await expect(
+      service.update('agencyops-demo', clientId, { slug: 'new' }),
     ).rejects.toBe(error);
   });
 

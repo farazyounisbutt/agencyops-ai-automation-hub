@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
+import type { UpdateClientDto } from './dto/update-client.dto.js';
 import type { CreateClientDto } from './dto/create-client.dto.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,6 +63,41 @@ export class ClientsService {
         throw new ConflictException(
           'Client slug already exists in this workspace',
         );
+      }
+      throw error;
+    }
+  }
+
+  async update(
+    workspaceSlug: string,
+    clientId: string,
+    input: UpdateClientDto,
+  ) {
+    const data: Prisma.ClientUpdateInput = {};
+    if (input.name !== undefined) data.name = input.name;
+    if (input.slug !== undefined) data.slug = input.slug;
+    if (input.website !== undefined) data.website = input.website;
+    if (input.timezone !== undefined) data.timezone = input.timezone;
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('At least one client property is required');
+    }
+    const workspace = await this.findWorkspace(workspaceSlug);
+    try {
+      return await this.prisma.client.update({
+        where: { id: clientId, workspaceId: workspace.id },
+        data,
+      });
+    } catch (error) {
+      if (isClientSlugConflict(error)) {
+        throw new ConflictException(
+          'Client slug already exists in this workspace',
+        );
+      }
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Client not found');
       }
       throw error;
     }

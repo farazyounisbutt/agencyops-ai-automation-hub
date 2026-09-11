@@ -2,9 +2,9 @@
 
 This roadmap defines planned work from the foundation documented in
 [Project status](PROJECT_STATUS.md). [Product scope](PRODUCT_SCOPE.md) defines
-the reporting workflow and architecture boundaries. All phases below are pending;
-**Client creation is the immediate next implementation task** within the
-Client Write API phase.
+the reporting workflow and architecture boundaries. This roadmap defines the
+implementation sequence; [Project status](PROJECT_STATUS.md) identifies completed,
+current, and immediate next work.
 
 Use one focused task per feature branch. A phase can require several branches;
 include relevant validation and tests with each implementation change.
