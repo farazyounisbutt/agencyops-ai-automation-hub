@@ -26,6 +26,7 @@ describe('ClientsService', () => {
   let prisma: {
     workspace: { findUnique: ReturnType<typeof vi.fn> };
     client: {
+      updateMany: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
@@ -37,6 +38,7 @@ describe('ClientsService', () => {
     prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue({ id: workspaceId }) },
       client: {
+        updateMany: vi.fn(),
         update: vi.fn(),
         create: vi.fn(),
         findMany: vi.fn(),
@@ -227,6 +229,51 @@ describe('ClientsService', () => {
       service.update('agencyops-demo', clientId, { slug: 'new' }),
     ).rejects.toBe(error);
   });
+
+  it.each([1, 0])(
+    'returns the archived client after %i conditional transitions',
+    async (count) => {
+      const archived = { ...client, status: 'ARCHIVED' };
+      prisma.client.updateMany.mockResolvedValue({ count });
+      prisma.client.findFirst.mockResolvedValue(archived);
+      await expect(
+        service.archive('agencyops-demo', clientId),
+      ).resolves.toEqual(archived);
+      expect(prisma.client.updateMany).toHaveBeenCalledWith({
+        where: { id: clientId, workspaceId, status: { not: 'ARCHIVED' } },
+        data: { status: 'ARCHIVED' },
+      });
+      expect(prisma.client.findFirst).toHaveBeenCalledWith({
+        where: { id: clientId, workspaceId },
+      });
+    },
+  );
+  it('does not archive for a missing workspace', async () => {
+    prisma.workspace.findUnique.mockResolvedValue(null);
+    await expect(service.archive('missing', clientId)).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(prisma.client.updateMany).not.toHaveBeenCalled();
+  });
+  it('returns 404 when the scoped archive client is missing', async () => {
+    prisma.client.updateMany.mockResolvedValue({ count: 0 });
+    prisma.client.findFirst.mockResolvedValue(null);
+    await expect(service.archive('agencyops-demo', clientId)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+  it.each(['mutation', 'read'])(
+    'preserves archive database errors during %s',
+    async (operation) => {
+      const error = new Error('Database unavailable');
+      if (operation === 'mutation')
+        prisma.client.updateMany.mockRejectedValue(error);
+      else prisma.client.findFirst.mockRejectedValue(error);
+      await expect(service.archive('agencyops-demo', clientId)).rejects.toBe(
+        error,
+      );
+    },
+  );
 
   it('lists all workspace clients ordered by name', async () => {
     const clients = [
