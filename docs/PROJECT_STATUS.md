@@ -1,7 +1,7 @@
 # AgencyOps project status
 
-Repository implementation baseline before Client Update API:
-`8ba1c2e` on `main`, reviewed on 2026-09-11.
+Repository implementation baseline before Client Archive API:
+`3fcde9d` on `main`, reviewed on 2026-09-12.
 
 ## Product goal
 
@@ -28,7 +28,7 @@ Recent Git history, oldest first:
 
 The frontend still displays the Next.js starter page. Redis has local Docker
 infrastructure but no application integration. Authentication, membership
-authorization, client archive, automation, and reporting are not implemented.
+authorization, automation, and reporting are not implemented.
 n8n is planned for the MVP but has no Docker service or local configuration yet.
 
 Client Creation API is implemented and verified:
@@ -38,6 +38,9 @@ configuration for the `/api` prefix, CORS, and global `ValidationPipe`.
 Client Update API is implemented and verified: partial, workspace-scoped updates
 with shared creation field rules, explicit supplied-field persistence, website
 clearing, and database-enforced slug conflict handling.
+
+Client Archive API is implemented and verified. The client write API now supports
+create, update, and archive operations while preserving client records.
 
 ## Database models
 
@@ -66,6 +69,7 @@ Default base URL: `http://localhost:3001/api`.
 | `GET /api/workspaces/:workspaceSlug/clients/:clientId` | Returns client scoped to workspace; 404 for missing workspace, missing/out-of-workspace client, or invalid UUID |
 | `POST /api/workspaces/:workspaceSlug/clients` | Creates a client with 201; invalid input returns 400, missing workspace 404, and duplicate workspace/client slug 409; the same slug is allowed in another workspace |
 | `PATCH /api/workspaces/:workspaceSlug/clients/:clientId` | Updates supplied client fields with 200; invalid/empty input returns 400, missing workspace or missing/invalid-UUID/out-of-workspace client 404, and duplicate workspace/client slug 409 |
+| `POST /api/workspaces/:workspaceSlug/clients/:clientId/archive` | Archives with 200; repeated requests return 200 without rewriting; body properties/non-object JSON return 400; missing workspace or missing/invalid-UUID/out-of-workspace client returns 404 |
 
 Creation requires a trimmed name (1–200 characters) and an unmodified lowercase
 alphanumeric slug with single hyphen separators (1–100 characters). Optional
@@ -84,6 +88,14 @@ and writes are scoped by both client ID and workspace ID. Unchanged slugs and
 cross-workspace slug reuse succeed; concurrent same-workspace conflicts return 409.
 There is no status-based update restriction. Success returns the full persisted
 client; unrelated database errors are preserved.
+
+Archive accepts no body or an empty object and sets status exclusively on the
+server. An atomic conditional update is scoped by workspace ID, client ID, and
+status not already ARCHIVED. Prisma advances `updatedAt` on the first transition;
+`createdAt` and all other fields remain unchanged. Repeated and concurrent archive
+requests return the archived client without another effective transition or
+rewrite. Archived clients remain listed, readable, and editable through the
+existing endpoints. Unarchive and deletion are not implemented.
 
 Client routes currently have no authentication or membership authorization.
 The health endpoint checks PostgreSQL only. Database connection failure can
@@ -146,12 +158,14 @@ curl --fail http://localhost:3001/api/health
 curl --fail http://localhost:3001/api/workspaces/agencyops-demo/clients
 ```
 
-API unit tests cover the scaffold controller, client read/create service behavior
-with mocked database access, and DTO validation through the configured pipe.
+API unit tests cover the scaffold controller, client read/create/update/archive
+service behavior with mocked database access, archive body validation, and DTO
+validation through the configured pipe.
 End-to-end tests use PostgreSQL and the same `configureApp` function as bootstrap.
-They check `/api`, client creation, validation, scoped reads, and duplicate-slug
-behavior including concurrent requests. The new suite creates UUID-named test
-workspaces and deletes only its own recorded workspace IDs and cascading clients.
+They check `/api`, client creation/update/archive, validation, scoped reads, and
+duplicate-slug behavior including concurrent requests. Client suites create
+UUID-named test workspaces and delete only their own recorded workspace IDs and
+cascading clients.
 Health HTTP coverage remains pending. The web package has no test script.
 The curl checks require the running API, and the demo request requires seeding.
 
@@ -176,6 +190,18 @@ Client update verification (2026-09-11):
 - Update fixtures use dedicated UUID-named workspaces and remove only their own records.
 - `git diff --check` passed.
 
+Client archive verification (2026-09-12):
+
+- Prisma client generation, API/web builds, and API/web lint passed.
+- 143 unit tests passed across five files.
+- 25 PostgreSQL-backed end-to-end tests passed across four files, including
+  six archive cases covering ACTIVE/INACTIVE transitions, timestamp preservation
+  on repetition, concurrent requests, body rejection, resource isolation, and
+  continued read/edit access. PostgreSQL row-version checks confirm repeated
+  archive requests do not rewrite the record.
+- End-to-end tests require reachable PostgreSQL with existing migrations applied.
+- `git diff --check` passed; no dependencies, lockfile, schema, or migration changes.
+
 `pnpm peers check` continues to report a pre-existing mismatch: `tsconfck` 3.1.6
 expects TypeScript ^5 while the API currently uses TypeScript 6.0.3. This mismatch
 was not introduced or changed by this feature.
@@ -187,11 +213,11 @@ volumes unless intentionally discarding local data.
 
 ## Immediate next task and MVP roadmap
 
-**Client Creation and Client Update APIs are implemented and verified.** The
-immediate next planned task is **Client Archive API**, requiring a separate task
-brief, approval, feature branch, and commit within the Client Write API phase.
-Authentication and workspace authorization follow before exposing client
-management to real users.
+**Client Creation, Client Update, and Client Archive APIs are implemented and
+verified.** The Client Write API phase is complete. The next phase is
+**authentication and workspace authorization**, requiring a separate task brief
+and approval before implementation and before exposing client management to
+real users.
 
 The [MVP roadmap](ROADMAP.md) records 14 implementation phases, from client writes
 through n8n reporting, review, delivery, the live connector, monitoring, and

@@ -103,6 +103,22 @@ export class ClientsService {
     }
   }
 
+  async archive(workspaceSlug: string, clientId: string) {
+    const workspace = await this.findWorkspace(workspaceSlug);
+    const where = { id: clientId, workspaceId: workspace.id };
+    // The predicate is checked atomically, so retries and concurrent requests
+    // cannot rewrite an already archived record or advance its updatedAt.
+    await this.prisma.client.updateMany({
+      where: { ...where, status: { not: 'ARCHIVED' } },
+      data: { status: 'ARCHIVED' },
+    });
+    const client = await this.prisma.client.findFirst({ where });
+    if (!client) {
+      throw new NotFoundException('Client not found');
+    }
+    return client;
+  }
+
   async findAll(workspaceSlug: string) {
     const workspace = await this.findWorkspace(workspaceSlug);
     return this.prisma.client.findMany({

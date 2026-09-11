@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
+  HttpCode,
   HttpStatus,
   Param,
   Patch,
@@ -22,6 +24,31 @@ export class ClientsController {
     @Body() input: CreateClientDto,
   ) {
     return this.clientsService.create(workspaceSlug, input);
+  }
+
+  @Post(':clientId/archive')
+  @HttpCode(HttpStatus.OK)
+  archive(
+    @Param('workspaceSlug') workspaceSlug: string,
+    @Param(
+      'clientId',
+      new ParseUUIDPipe({ errorHttpStatusCode: HttpStatus.NOT_FOUND }),
+    )
+    clientId: string,
+    @Body() body: unknown,
+  ) {
+    if (
+      body !== undefined &&
+      (body === null ||
+        typeof body !== 'object' ||
+        Array.isArray(body) ||
+        Object.keys(body).length > 0)
+    ) {
+      throw new BadRequestException(
+        'Archive accepts no body or an empty object',
+      );
+    }
+    return this.clientsService.archive(workspaceSlug, clientId);
   }
 
   @Patch(':clientId')
