@@ -1,7 +1,7 @@
 # AgencyOps project status
 
-Repository implementation baseline before Client Archive API:
-`3fcde9d` on `main`, reviewed on 2026-09-12.
+Repository implementation baseline before Clerk Authentication Foundation:
+`e94b271` on `main`, reviewed on 2026-09-12.
 
 ## Product goal
 
@@ -26,9 +26,11 @@ Recent Git history, oldest first:
 - `2ca9e7d` (PR #1): repeatable transactional demo seed.
 - `a63a216` (PR #2): workspace-scoped client list/detail endpoints and service tests.
 
-The frontend still displays the Next.js starter page. Redis has local Docker
-infrastructure but no application integration. Authentication, membership
-authorization, automation, and reporting are not implemented.
+The frontend provides Clerk sign-in/sign-out state and a current-user display.
+The Clerk authentication foundation is implemented with automated verification;
+manual live acceptance passed on 2026-09-25. Workspace
+authorization, automation, and reporting are not implemented. Redis has local
+Docker infrastructure but no application integration.
 n8n is planned for the MVP but has no Docker service or local configuration yet.
 
 Client Creation API is implemented and verified:
@@ -45,12 +47,13 @@ create, update, and archive operations while preserving client records.
 ## Database models
 
 Schema: `apps/api/prisma/schema.prisma`. Initial migration:
-`20260908224541_init_core`.
+`20260908224541_init_core`. Clerk identity mapping is added by
+`20260912095340_add_user_clerk_identity` (nullable unique `User.clerkUserId`).
 
 | Model | Existing fields and relationships |
 | --- | --- |
 | `Workspace` | UUID id, name, unique slug, timestamps; has members and clients |
-| `User` | UUID id, unique email, optional name, timestamps; has memberships |
+| `User` | UUID id, unique email, nullable unique Clerk user ID, optional name, timestamps; has memberships |
 | `WorkspaceMember` | Composite workspace/user primary key, role, joinedAt; foreign keys cascade on deletion; userId index |
 | `Client` | UUID id, workspaceId, name, slug, optional website, timezone (UTC default), status, timestamps; unique workspaceId/slug and workspaceId index; workspace deletion cascades |
 
@@ -64,6 +67,7 @@ Default base URL: `http://localhost:3001/api`.
 | Method and path | Behavior |
 | --- | --- |
 | `GET /api` | Returns `Hello World!` |
+| `GET /api/me` | Valid Clerk session plus linked local User required; returns `{ id, email, name }` with no-store caching, 401 for invalid/missing authentication, 403 for unprovisioned identity, sanitized 500 for lookup failure |
 | `GET /api/health` | Executes `SELECT 1`; returns status, database state, and timestamp; database query failure returns 503 |
 | `GET /api/workspaces/:workspaceSlug/clients` | Returns all workspace clients ordered by name ascending; empty array if none; 404 for missing workspace |
 | `GET /api/workspaces/:workspaceSlug/clients/:clientId` | Returns client scoped to workspace; 404 for missing workspace, missing/out-of-workspace client, or invalid UUID |
@@ -97,7 +101,10 @@ requests return the archived client without another effective transition or
 rewrite. Archived clients remain listed, readable, and editable through the
 existing endpoints. Unarchive and deletion are not implemented.
 
-Client routes currently have no authentication or membership authorization.
+Client routes temporarily remain public with no authentication or membership
+authorization. Only `/api/me` has the new identity guard. Client-route protection
+and workspace authorization are the next task; this foundation alone does not
+make client data safe for real-user exposure. `/api` and health remain public.
 The health endpoint checks PostgreSQL only. Database connection failure can
 also prevent API startup because Prisma connects during module initialization.
 
@@ -162,11 +169,12 @@ API unit tests cover the scaffold controller, client read/create/update/archive
 service behavior with mocked database access, archive body validation, and DTO
 validation through the configured pipe.
 End-to-end tests use PostgreSQL and the same `configureApp` function as bootstrap.
-They check `/api`, client creation/update/archive, validation, scoped reads, and
+They check `/api`, Clerk authentication/provisioning, client creation/update/archive,
+validation, scoped reads, and
 duplicate-slug behavior including concurrent requests. Client suites create
 UUID-named test workspaces and delete only their own recorded workspace IDs and
 cascading clients.
-Health HTTP coverage remains pending. The web package has no test script.
+Public health HTTP coverage is included in the authentication suite. The web package has no test script.
 The curl checks require the running API, and the demo request requires seeding.
 
 Client creation verification (2026-09-11):
@@ -202,6 +210,30 @@ Client archive verification (2026-09-12):
 - End-to-end tests require reachable PostgreSQL with existing migrations applied.
 - `git diff --check` passed; no dependencies, lockfile, schema, or migration changes.
 
+Clerk Authentication Foundation verification (2026-09-12):
+
+- Exact additions: `@clerk/nextjs` 7.9.2 and `@clerk/backend` 3.17.2; root lockfile updated.
+- Schema validation, existing migration status/deploy, and Prisma generation passed.
+- API/web builds and both linters passed.
+- 181 unit tests and 40 PostgreSQL-backed end-to-end tests passed.
+- Demo seed ran twice; complete demo-record hashes matched between runs.
+- Whitespace checks passed; only the root project lockfile remains.
+- Manual live acceptance passed (2026-09-25): sign-in, refresh persistence,
+  sign-out, unprovisioned-user rejection, unauthenticated 401, Invite-only
+  registration blocking, and Bearer authentication.
+- The exposed development secret was replaced and revoked; sign-in was verified
+  with the replacement. Manual testing changed no application code.
+
+Clerk owns credentials and sessions; NestJS independently verifies Bearer session
+tokens through the official SDK with a configured public PEM key and authorized
+origins. The backend SDK also requires a server-only secret key at initialization.
+There is no request-time provisioning, email-based automatic linking, or Clerk
+Organizations authorization. Operator commands explicitly create/link users and
+preserve existing memberships. See [Clerk authentication setup](CLERK_AUTHENTICATION.md)
+for environment variables, manual Invite-only configuration, provisioning, key
+rotation, and live acceptance steps. Existing local environment files are not
+changed automatically. Authenticated requests never create workspaces or roles.
+
 `pnpm peers check` continues to report a pre-existing mismatch: `tsconfck` 3.1.6
 expects TypeScript ^5 while the API currently uses TypeScript 6.0.3. This mismatch
 was not introduced or changed by this feature.
@@ -215,9 +247,10 @@ volumes unless intentionally discarding local data.
 
 **Client Creation, Client Update, and Client Archive APIs are implemented and
 verified.** The Client Write API phase is complete. The next phase is
-**authentication and workspace authorization**, requiring a separate task brief
-and approval before implementation and before exposing client management to
-real users.
+**workspace authorization and protection of client routes** following successful
+manual Clerk acceptance. The Clerk Authentication Foundation supplies verified
+local identity only; workspace permissions require a separate task brief and
+approval before implementation and before exposing client management to real users.
 
 The [MVP roadmap](ROADMAP.md) records 14 implementation phases, from client writes
 through n8n reporting, review, delivery, the live connector, monitoring, and

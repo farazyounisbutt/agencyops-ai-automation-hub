@@ -25,11 +25,18 @@ They receive approved reports by email.
 
 | Component | Responsibility |
 | --- | --- |
-| NestJS | Application backend; owns business rules, authentication, authorization, persistence, and audit records. Validates workflow requests and callbacks, controls run/report state, and enforces approval before delivery. |
+| NestJS | Application backend; independently verifies Clerk identity tokens and owns business rules, workspace authorization, persistence, and audit records. Validates workflow requests and callbacks, controls run/report state, and enforces approval before delivery. |
 | PostgreSQL | System of record for core application data, including clients, automation definitions, runs, reports, review decisions, and execution/delivery history. |
 | n8n | Orchestrates scheduled and manually triggered automation workflows and external integrations. Retrieves performance inputs, coordinates analysis/report generation, and returns results and execution status to NestJS. |
 | Redis | Supports queues, background processing, caching, and retries. Durable business state and history remain in PostgreSQL through NestJS. |
 | Next.js | Agency-facing dashboard for client management, workflow triggers, draft review, approval/rejection, and execution/delivery history. |
+
+Clerk is the managed identity provider for the MVP and owns credentials,
+authentication, sessions, and signed identity tokens. AgencyOps retains User,
+Workspace, WorkspaceMember, and WorkspaceRole ownership. Clerk Organizations and
+browser-supplied identity/membership claims do not authorize workspace access.
+Initial access is for pre-approved agency users; public onboarding and automatic
+workspace creation are outside scope. See [Clerk setup](CLERK_AUTHENTICATION.md).
 
 n8n must not become the primary application backend or directly own core
 business data. It accesses application data and submits changes through NestJS

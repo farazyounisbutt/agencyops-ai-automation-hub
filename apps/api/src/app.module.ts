@@ -1,3 +1,4 @@
+import { AuthModule } from './auth/auth.module.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller.js';
@@ -13,6 +14,7 @@ import { ClientsModule } from './clients/clients.module.js';
       envFilePath: ['.env', '../../.env'],
     }),
     PrismaModule,
+    AuthModule,
     HealthModule,
     ClientsModule,
   ],
